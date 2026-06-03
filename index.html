@@ -301,6 +301,10 @@ function addRow(){
 // ── LOCAL SAVE ──
 function saveSnapshot(){
   const date=document.getElementById("dateInput").value||"no-date";
+  // Fix: sync all input values into HTML attributes before capturing innerHTML
+  document.querySelector("#stockTable tbody").querySelectorAll("input").forEach(inp=>{
+    inp.setAttribute("value", inp.value);
+  });
   const html=document.querySelector("#stockTable tbody").innerHTML;
   const key="snap_"+date+"_"+Date.now();
   const snapshots=getSnapshots();
