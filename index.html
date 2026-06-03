@@ -130,11 +130,17 @@ document.getElementById("dateInput").value=new Date().toISOString().slice(0,10);
 // ── Google Sign In ──
 function onGoogleSignIn(response){
   const payload=JSON.parse(atob(response.credential.split(".")[1]));
-  document.getElementById("signInBtn").style.display="none";
-  document.getElementById("userInfo").style.display="flex";
-  document.getElementById("userAvatar").src=payload.picture||"";
-  document.getElementById("userName").innerText=payload.name||payload.email;
+  // Save user info to localStorage
+  localStorage.setItem("hein_user", JSON.stringify({
+    name: payload.name||payload.email,
+    picture: payload.picture||""
+  }));
+  showUserInfo(payload.name||payload.email, payload.picture||"");
   // Request access token for Sheets API
+  requestSheetsToken();
+}
+
+function requestSheetsToken(){
   google.accounts.oauth2.initTokenClient({
     client_id:CLIENT_ID,
     scope:SCOPES,
@@ -146,9 +152,39 @@ function onGoogleSignIn(response){
   }).requestAccessToken();
 }
 
+function showUserInfo(name, picture){
+  document.getElementById("signInBtn").style.display="none";
+  document.getElementById("userInfo").style.display="flex";
+  document.getElementById("userAvatar").src=picture;
+  document.getElementById("userName").innerText=name;
+}
+
+function restoreLogin(){
+  const saved=localStorage.getItem("hein_user");
+  if(saved){
+    try{
+      const u=JSON.parse(saved);
+      showUserInfo(u.name, u.picture);
+      // Auto request token silently
+      google.accounts.oauth2.initTokenClient({
+        client_id:CLIENT_ID,
+        scope:SCOPES,
+        prompt:"none",
+        callback:(tokenResp)=>{
+          if(tokenResp.access_token){
+            accessToken=tokenResp.access_token;
+            document.getElementById("btnSyncSheet").style.display="inline-block";
+          }
+        }
+      }).requestAccessToken();
+    }catch(e){}
+  }
+}
+
 function signOut(){
   google.accounts.id.disableAutoSelect();
   accessToken=null;
+  localStorage.removeItem("hein_user");
   document.getElementById("signInBtn").style.display="block";
   document.getElementById("userInfo").style.display="none";
   document.getElementById("btnSyncSheet").style.display="none";
@@ -433,6 +469,10 @@ window.addEventListener("afterprint",function(){document.getElementById("printTa
 
 calculate();
 renderSnapshotList();
+// Restore login after Google SDK loads
+window.addEventListener("load", ()=>{
+  setTimeout(restoreLogin, 500);
+});
 </script>
 </body>
 </html>
