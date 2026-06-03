@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ヘイン Stock</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;padding:16px;background:#f5f5f5}
+#toolbar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center}
+button{padding:7px 14px;border:none;border-radius:4px;cursor:pointer;font-size:13px;background:#4a90d9;color:white;font-weight:bold}
+button:hover{opacity:.85}
+#btnDeleteRow{background:#c0392b}
+#btnClearAll{background:#8e44ad}
+#btnPrint{background:#27ae60}
+#btnSyncSheet{background:#0f9d58}
+#dateInput{padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px}
+label{font-size:13px;font-weight:bold;color:#333}
+#userInfo{font-size:13px;color:#333;display:flex;align-items:center;gap:8px}
+#userInfo img{width:28px;height:28px;border-radius:50%}
+#btnSignout{background:#888;padding:5px 10px;font-size:12px}
+
+table{border-collapse:collapse;width:100%;text-align:center;background:white}
+td{border:1px solid #000;height:52px;padding:0}
+input[type=number],input[type=text]{width:100%;height:100%;border:none;text-align:center;font-size:14px;background:transparent}
+.usage{background:#FFD966}
+.total{background:#6FA8DC;color:white;font-weight:bold}
+.stock{background:#93C47D}
+.order{background:#E06666}
+.order input{color:white}
+.box{background:#222;color:white}
+.box input{color:white}
+.result{background:#CC0000;color:white;font-weight:bold}
+.request{background:white}
+.need{background:#ff4d4d!important}
+.shortage{background:#ff4d4d!important}
+.shortage input,.need input{color:white}
+.value{display:flex;align-items:center;justify-content:center;height:100%;font-weight:bold;font-size:14px}
+.date-cell{background:#D9EAD3;font-weight:bold;font-size:13px}
+#savedList{margin-top:14px}
+#savedList h3{font-size:14px;margin-bottom:6px;color:#333}
+.saved-item{display:flex;align-items:center;gap:8px;margin-bottom:5px;background:white;padding:6px 10px;border-radius:4px;border:1px solid #ddd}
+.saved-item span{flex:1;font-size:13px}
+.saved-item button{padding:4px 10px;font-size:12px}
+.btn-load{background:#2980b9}
+.btn-del{background:#c0392b}
+#statusMsg{font-size:12px;color:#27ae60;margin-top:4px;min-height:16px}
+
+#printArea{display:none}
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
+  @page{size:A4 portrait;margin:10mm}
+  #toolbar,#savedList,#mainWrap,#statusMsg{display:none!important}
+  body{background:white;padding:0}
+  #printArea{display:block!important}
+  #printTitle{text-align:center;font-size:17px;font-weight:bold;margin-bottom:10px;font-family:Arial}
+  #printTable{width:100%;border-collapse:collapse;font-size:13px;font-family:Arial}
+  #printTable th,#printTable td{border:2px solid #333;padding:8px 6px;text-align:center}
+  .ph-name{text-align:left!important;font-weight:bold}
+  .ph-top{background:#E06666;color:white;font-weight:bold}
+  .ph-bot{background:#c0392b;color:white;font-weight:bold}
+  .ph-head{background:#444;color:white;font-weight:bold}
+  .pd-top{background:#E06666;color:white;font-weight:bold}
+  .pd-bot{background:#c0392b;color:white;font-weight:bold}
+  .pd-name{text-align:left!important;font-weight:bold}
+}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <!-- Google Sign-In button (shown when not logged in) -->
+  <div id="g_id_onload"
+    data-client_id="269898755413-k44bqildm8gkb1e2u4hhljoph13f1gsa.apps.googleusercontent.com"
+    data-callback="onGoogleSignIn"
+    data-auto_prompt="false">
+  </div>
+  <div id="signInBtn">
+    <div class="g_id_signin"
+      data-type="standard"
+      data-size="medium"
+      data-theme="outline"
+      data-text="sign_in_with"
+      data-shape="rectangular"
+      data-logo_alignment="left">
+    </div>
+  </div>
+
+  <!-- User info (shown when logged in) -->
+  <div id="userInfo" style="display:none">
+    <img id="userAvatar" src="" alt="">
+    <span id="userName"></span>
+    <button id="btnSignout" onclick="signOut()">Sign Out</button>
+  </div>
+
+  <button onclick="addRow()">➕ Add Row</button>
+  <button id="btnDeleteRow" onclick="deleteLastRow()">🗑 Delete Row</button>
+  <button id="btnClearAll" onclick="clearAll()">✕ Clear All</button>
+  <label for="dateInput">Date:</label>
+  <input type="date" id="dateInput">
+  <button onclick="saveSnapshot()">💾 Save Local</button>
+  <button id="btnSyncSheet" onclick="syncToSheets()" style="display:none">📊 Save to Sheets</button>
+  <button id="btnPrint" onclick="window.print()">🖨 Print</button>
+</div>
+<div id="statusMsg"></div>
+
+<div id="mainWrap">
+  <table id="stockTable"><tbody></tbody></table>
+</div>
+
+<div id="savedList">
+  <h3>📁 Saved Data (Local)</h3>
+  <div id="snapshotList"></div>
+</div>
+
+<div id="printArea">
+  <div id="printTitle"></div>
+  <table id="printTable"></table>
+</div>
+
+<script>
+const CLIENT_ID="269898755413-k44bqildm8gkb1e2u4hhljoph13f1gsa.apps.googleusercontent.com";
+const SCOPES="https://www.googleapis.com/auth/spreadsheets";
+let accessToken=null;
+let sheetId=localStorage.getItem("hein_sheet_id")||null;
+let rowIndex=0;
+
+document.getElementById("dateInput").value=new Date().toISOString().slice(0,10);
+
+// ── Google Sign In ──
+function onGoogleSignIn(response){
+  const payload=JSON.parse(atob(response.credential.split(".")[1]));
+  document.getElementById("signInBtn").style.display="none";
+  document.getElementById("userInfo").style.display="flex";
+  document.getElementById("userAvatar").src=payload.picture||"";
+  document.getElementById("userName").innerText=payload.name||payload.email;
+  // Request access token for Sheets API
+  google.accounts.oauth2.initTokenClient({
+    client_id:CLIENT_ID,
+    scope:SCOPES,
+    callback:(tokenResp)=>{
+      accessToken=tokenResp.access_token;
+      document.getElementById("btnSyncSheet").style.display="inline-block";
+      setStatus("✅ Google login success! Ready to sync.");
+    }
+  }).requestAccessToken();
+}
+
+function signOut(){
+  google.accounts.id.disableAutoSelect();
+  accessToken=null;
+  document.getElementById("signInBtn").style.display="block";
+  document.getElementById("userInfo").style.display="none";
+  document.getElementById("btnSyncSheet").style.display="none";
+  setStatus("Signed out.");
+}
+
+function setStatus(msg,color){
+  const el=document.getElementById("statusMsg");
+  el.innerText=msg;
+  el.style.color=color||"#27ae60";
+  setTimeout(()=>el.innerText="",4000);
+}
+
+// ── Row functions ──
+function createRow(){
+  const id=rowIndex++;
+  return `
+<tr data-group="${id}">
+  <td class="date-cell" rowspan="3"><div class="value dateCell" style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px"></div></td>
+  <td class="usage"><input type="number"></td>
+  <td class="usage"><input type="number"></td>
+  <td class="usage"><input type="number"></td>
+  <td class="usage"><input type="number"></td>
+  <td class="usage"><input type="number"></td>
+  <td class="usage"><input type="number"></td>
+  <td class="usage"><input type="number"></td>
+  <td class="total"><div class="value totalCell">0</div></td>
+  <td class="order"><input class="orderInput" type="number"></td>
+  <td class="order"><input class="orderInput" type="number"></td>
+  <td class="order"><input class="orderInput" type="number"></td>
+</tr>
+<tr data-group="${id}">
+  <td colspan="7" rowspan="2"><input type="text" placeholder="Product Name"></td>
+  <td class="stock"><input class="stockInput" type="number"></td>
+  <td class="order"><input class="orderInput" type="number"></td>
+  <td class="order"><input class="orderInput" type="number"></td>
+  <td class="order"><input class="orderInput" type="number"></td>
+</tr>
+<tr data-group="${id}">
+  <td class="box"><input class="boxQty" type="number"></td>
+  <td colspan="3" class="result"><div class="value resultCell">0</div></td>
+</tr>`;
+}
+
+document.querySelector("#stockTable tbody").innerHTML=createRow();
+updateDateCells();
+
+function updateDateCells(){
+  const d=document.getElementById("dateInput").value;
+  const display=d?d.replace(/-/g,"/"):"";
+  document.querySelectorAll(".dateCell").forEach(el=>el.innerText=display);
+}
+document.getElementById("dateInput").addEventListener("change",updateDateCells);
+
+function deleteLastRow(){
+  const tbody=document.querySelector("#stockTable tbody");
+  const allGroups=[...new Set([...tbody.querySelectorAll("tr[data-group]")].map(r=>r.getAttribute("data-group")))];
+  if(!allGroups.length) return;
+  const lastId=allGroups[allGroups.length-1];
+  tbody.querySelectorAll(`tr[data-group="${lastId}"]`).forEach(r=>r.remove());
+  calculate();
+}
+
+function clearAll(){
+  if(!confirm("All rows will be cleared. Continue?")) return;
+  rowIndex=0;
+  document.querySelector("#stockTable tbody").innerHTML=createRow();
+  updateDateCells();
+  calculate();
+}
+
+function calculate(){
+  const tbody=document.querySelector("#stockTable tbody");
+  const groups={};
+  [...tbody.querySelectorAll("tr[data-group]")].forEach(r=>{
+    const g=r.getAttribute("data-group");
+    if(!groups[g]) groups[g]=[];
+    groups[g].push(r);
+  });
+  Object.values(groups).forEach(grp=>{
+    if(grp.length<3) return;
+    const [r1,r2,r3]=grp;
+    let stock=Number(r2.querySelector(".stockInput").value)||0;
+    let boxQty=Number(r3.querySelector(".boxQty").value)||0;
+    let orderTotal=0;
+    grp.forEach(r=>r.querySelectorAll(".orderInput").forEach(x=>orderTotal+=Number(x.value)||0));
+    let total=stock+(orderTotal*boxQty);
+    r1.querySelector(".totalCell").innerText=total;
+    let usageTotal=0,running=total,shortage=false;
+    r1.querySelectorAll(".usage").forEach(x=>x.classList.remove("shortage"));
+    r1.querySelectorAll(".usage input").forEach(inp=>{
+      let v=Number(inp.value)||0;
+      usageTotal+=v; running+=v;
+      if(running<=0) shortage=true;
+      if(shortage) inp.parentElement.classList.add("shortage");
+    });
+    let result=total+usageTotal;
+    r3.querySelector(".resultCell").innerText=result;
+    r1.querySelectorAll(".request").forEach(x=>x.classList.remove("need"));
+    if(result<0) r1.querySelectorAll(".request").forEach(x=>x.classList.add("need"));
+  });
+}
+document.addEventListener("input",e=>{
+  if(!e.target.closest("#stockTable")) return;
+  calculate();
+});
+
+function addRow(){
+  document.querySelector("#stockTable tbody").insertAdjacentHTML("beforeend",createRow());
+  updateDateCells();
+  calculate();
+}
+
+// ── LOCAL SAVE ──
+function saveSnapshot(){
+  const date=document.getElementById("dateInput").value||"no-date";
+  const html=document.querySelector("#stockTable tbody").innerHTML;
+  const key="snap_"+date+"_"+Date.now();
+  const snapshots=getSnapshots();
+  snapshots.push({key,date,html,rowIndex});
+  localStorage.setItem("hein_snapshots",JSON.stringify(snapshots));
+  renderSnapshotList();
+  setStatus("💾 Saved locally: "+date);
+}
+
+function getSnapshots(){
+  try{return JSON.parse(localStorage.getItem("hein_snapshots"))||[];}catch{return [];}
+}
+
+function loadSnapshot(key){
+  const s=getSnapshots().find(x=>x.key===key);
+  if(!s) return;
+  document.querySelector("#stockTable tbody").innerHTML=s.html;
+  rowIndex=(s.rowIndex||0)+1;
+  if(s.date) document.getElementById("dateInput").value=s.date;
+  updateDateCells();
+  calculate();
+}
+
+function deleteSnapshot(key){
+  if(!confirm("Delete this saved data?")) return;
+  const updated=getSnapshots().filter(x=>x.key!==key);
+  localStorage.setItem("hein_snapshots",JSON.stringify(updated));
+  renderSnapshotList();
+}
+
+function renderSnapshotList(){
+  const list=document.getElementById("snapshotList");
+  const snaps=getSnapshots();
+  if(!snaps.length){list.innerHTML="<p style='font-size:13px;color:#888'>No saved data yet.</p>";return;}
+  list.innerHTML=snaps.map(s=>`
+    <div class="saved-item">
+      <span>📅 ${s.date}</span>
+      <button class="btn-load" onclick="loadSnapshot('${s.key}')">Load</button>
+      <button class="btn-del" onclick="deleteSnapshot('${s.key}')">Delete</button>
+    </div>`).join("");
+}
+
+// ── GOOGLE SHEETS SYNC ──
+function getTableData(){
+  const tbody=document.querySelector("#stockTable tbody");
+  const groupMap={};
+  [...tbody.querySelectorAll("tr[data-group]")].forEach(r=>{
+    const g=r.getAttribute("data-group");
+    if(!groupMap[g]) groupMap[g]=[];
+    groupMap[g].push(r);
+  });
+  const date=document.getElementById("dateInput").value||"";
+  const rows=[["Date","Product Name","Order1","Order2","Order3","Order4","Order5","Order6","Stock","BoxQty","Total","Result"]];
+  Object.values(groupMap).filter(g=>g.length>=3).forEach(grp=>{
+    const [r1,r2,r3]=grp;
+    const name=r2.querySelector("input[type=text]").value||"";
+    const orders=[];
+    grp.forEach(r=>r.querySelectorAll(".orderInput").forEach(x=>orders.push(x.value||"")));
+    const stock=r2.querySelector(".stockInput").value||"";
+    const box=r3.querySelector(".boxQty").value||"";
+    const total=r1.querySelector(".totalCell").innerText||"";
+    const result=r3.querySelector(".resultCell").innerText||"";
+    rows.push([date,name,...orders.slice(0,6),stock,box,total,result]);
+  });
+  return rows;
+}
+
+async function syncToSheets(){
+  if(!accessToken){setStatus("❌ Please sign in first.","#c0392b");return;}
+  setStatus("⏳ Syncing to Google Sheets...");
+  try{
+    // Create sheet if not exists
+    if(!sheetId){
+      const res=await fetch("https://sheets.googleapis.com/v4/spreadsheets",{
+        method:"POST",
+        headers:{"Authorization":"Bearer "+accessToken,"Content-Type":"application/json"},
+        body:JSON.stringify({properties:{title:"Hein Stock Data"}})
+      });
+      const data=await res.json();
+      sheetId=data.spreadsheetId;
+      localStorage.setItem("hein_sheet_id",sheetId);
+    }
+    // Clear and write data
+    const rows=getTableData();
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1:Z1000:clear`,{
+      method:"POST",
+      headers:{"Authorization":"Bearer "+accessToken}
+    });
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1?valueInputOption=RAW`,{
+      method:"PUT",
+      headers:{"Authorization":"Bearer "+accessToken,"Content-Type":"application/json"},
+      body:JSON.stringify({values:rows})
+    });
+    setStatus("✅ Saved to Google Sheets! Open: https://docs.google.com/spreadsheets/d/"+sheetId);
+  }catch(e){
+    setStatus("❌ Error: "+e.message,"#c0392b");
+  }
+}
+
+// ── PRINT ──
+function buildPrintTable(){
+  const date=document.getElementById("dateInput").value||"";
+  document.getElementById("printTitle").innerText=
+    "Stock Order Sheet"+(date?" — "+date.replace(/-/g,"/"):"");
+  const pt=document.getElementById("printTable");
+  pt.innerHTML="";
+  const tbody=document.querySelector("#stockTable tbody");
+  const groupMap={};
+  [...tbody.querySelectorAll("tr[data-group]")].forEach(r=>{
+    const g=r.getAttribute("data-group");
+    if(!groupMap[g]) groupMap[g]=[];
+    groupMap[g].push(r);
+  });
+  const groups=Object.values(groupMap).filter(g=>g.length>=3);
+  if(!groups.length) return;
+  const thead=document.createElement("thead");
+  const hr1=document.createElement("tr");
+  const thItem=document.createElement("th");
+  thItem.textContent="Item / Product";
+  thItem.rowSpan=2; thItem.className="ph-head ph-name";
+  hr1.appendChild(thItem);
+  ["Order 1","Order 2","Order 3"].forEach(h=>{
+    const th=document.createElement("th");
+    th.textContent=h; th.className="ph-head ph-top";
+    hr1.appendChild(th);
+  });
+  thead.appendChild(hr1);
+  const hr2=document.createElement("tr");
+  ["Order 4","Order 5","Order 6"].forEach(h=>{
+    const th=document.createElement("th");
+    th.textContent=h; th.className="ph-head ph-bot";
+    hr2.appendChild(th);
+  });
+  thead.appendChild(hr2);
+  pt.appendChild(thead);
+  const tbodyPrint=document.createElement("tbody");
+  groups.forEach((grp,idx)=>{
+    const [r1,r2,r3]=grp;
+    const name=r2.querySelector("input[type=text]").value||"—";
+    const allOrders=[];
+    grp.forEach(r=>r.querySelectorAll(".orderInput").forEach(x=>allOrders.push(x.value||"")));
+    const bg=idx%2===0?"#fff":"#f5f5f5";
+    const dr1=document.createElement("tr");
+    dr1.style.background=bg;
+    const tdName=document.createElement("td");
+    tdName.textContent=name; tdName.rowSpan=2; tdName.className="pd-name";
+    dr1.appendChild(tdName);
+    allOrders.slice(0,3).forEach(val=>{
+      const td=document.createElement("td");
+      td.textContent=val; td.className="pd-top"; dr1.appendChild(td);
+    });
+    tbodyPrint.appendChild(dr1);
+    const dr2=document.createElement("tr");
+    dr2.style.background=bg;
+    allOrders.slice(3,6).forEach(val=>{
+      const td=document.createElement("td");
+      td.textContent=val; td.className="pd-bot"; dr2.appendChild(td);
+    });
+    tbodyPrint.appendChild(dr2);
+  });
+  pt.appendChild(tbodyPrint);
+}
+
+window.addEventListener("beforeprint",function(){buildPrintTable();});
+window.addEventListener("afterprint",function(){document.getElementById("printTable").innerHTML="";});
+
+calculate();
+renderSnapshotList();
+</script>
+</body>
+</html>
